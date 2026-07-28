@@ -1,91 +1,176 @@
 /*
- * Copyright (c) 2020 The ZMK Contributors
+ * Sofle Wireless (nice!nano + ZMK) keymap
  *
- * SPDX-License-Identifier: MIT
+ * 有線 Sofle の Vial 設定 (../../vial/sofle.vil) を ZMK に移植したもの。
+ * 設計の意図・レイヤーの狙いは vial/CLAUDE.md「Sofle キーマップ設計メモ」を、
+ * ZMK 固有の差分・制約は同ディレクトリの NOTES.md を参照。
+ *
+ * マトリクス写像: Vial は 左 row0-4 / 右 row5-9・col0=小指外→col5=内側。
+ * ZMK は視覚順で 左=外→内(そのまま) / 右=内→外(col を反転) に並べ直している。
+ * エンコーダ押下は下段中央の 2 ポジション (左=42 / 右=43)。
  */
 
 #include <behaviors.dtsi>
 #include <dt-bindings/zmk/keys.h>
 #include <dt-bindings/zmk/bt.h>
 #include <dt-bindings/zmk/outputs.h>
-#include <dt-bindings/zmk/ext_power.h>
-#include <dt-bindings/led/led.h>
-#include <dt-bindings/zmk/backlight.h>
-#include <dt-bindings/zmk/rgb.h>
-#include <dt-bindings/zmk/reset.h>
+
+#define WIN   0   // WIN_BASE  (デフォルト)
+#define MAC   1   // MAC_BASE
+#define NUM   2   // 数字・記号・F・Macro・OS切替
+#define SYS   3   // BT プロファイル・出力切替・リセット (有線版の予備 Layer3 を転用)
 
 / {
+    behaviors {
+        // レイヤータップ (Space/Enter)。QMK の Permissive Hold + TappingTerm 180 相当 = balanced。
+        lt_bal: layer_tap_balanced {
+            compatible = "zmk,behavior-hold-tap";
+            #binding-cells = <2>;
+            flavor = "balanced";
+            tapping-term-ms = <180>;
+            quick-tap-ms = <175>;
+            bindings = <&mo>, <&kp>;
+        };
+
+        // Mac 親指の純 GUI Mod-Tap (英数/かな)。QMK の Hold On Other Key Press 相当 = hold-preferred。
+        hm_gui: hold_mod_gui {
+            compatible = "zmk,behavior-hold-tap";
+            #binding-cells = <2>;
+            flavor = "hold-preferred";
+            tapping-term-ms = <180>;
+            bindings = <&kp>, <&kp>;
+        };
+
+        // ALL_T(Esc): タップ=Esc / ホールド=Hyper(Ctrl+Shift+Alt+Gui)。
+        // Hold On Other Key Press の対象外 (Esc タップ→次文字ロールを Hyper 誤爆させない) = tap-preferred。
+        hyper_esc: hyper_escape {
+            compatible = "zmk,behavior-hold-tap";
+            #binding-cells = <2>;
+            flavor = "tap-preferred";
+            tapping-term-ms = <180>;
+            bindings = <&kp>, <&kp>;
+        };
+    };
+
+    macros {
+        // スクショ: LAlt+LShift+3/4/5 (Mac=CleanShot Option+Shift, Win=ShareX Alt+Shift に合わせる)
+        m0: macro_shot_full {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&macro_press &kp LALT &kp LSHFT>, <&macro_tap &kp N3>, <&macro_release &kp LSHFT &kp LALT>;
+        };
+        m1: macro_shot_area {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&macro_press &kp LALT &kp LSHFT>, <&macro_tap &kp N4>, <&macro_release &kp LSHFT &kp LALT>;
+        };
+        m2: macro_shot_video {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings = <&macro_press &kp LALT &kp LSHFT>, <&macro_tap &kp N5>, <&macro_release &kp LSHFT &kp LALT>;
+        };
+
+        // Win Raycast: Ctrl+Space を ~110ms 保持してから離す (quick stab の取りこぼし対策)
+        m3: macro_raycast_win {
+            compatible = "zmk,behavior-macro";
+            #binding-cells = <0>;
+            bindings
+                = <&macro_press &kp LCTRL>
+                , <&macro_wait_time 40>
+                , <&macro_press &kp SPACE>
+                , <&macro_wait_time 30>
+                , <&macro_release &kp SPACE>
+                , <&macro_wait_time 40>
+                , <&macro_release &kp LCTRL>
+                ;
+        };
+    };
+
+    combos {
+        compatible = "zmk,combos";
+
+        // C0 (Mac): 左親指 英数(53) + Space(54) → Cmd+Space (Raycast for Mac)。
+        // Win C1 と同じ物理ペアに揃える。.vil の C0 は Ctrl+英数 (52+53) だが、
+        // 有線での実際の打ち方は 53+54 の quick stab (per-key HOKP が拾うため
+        // combo は発火せず事実上未使用だった)。hold-preferred でも同じ結果になるが、
+        // combo が先に確定するため打鍵速度に依らずタイミングが保証される。
+        combo_raycast_mac {
+            timeout-ms = <80>;
+            key-positions = <53 54>;
+            bindings = <&kp LG(SPACE)>;
+            layers = <MAC>;
+        };
+
+        // C1 (Win): 左親指 Ctrl(53) + Space(54) → M3 (Ctrl+Space, Raycast for Windows)。
+        combo_raycast_win {
+            timeout-ms = <80>;
+            key-positions = <53 54>;
+            bindings = <&m3>;
+            layers = <WIN>;
+        };
+    };
+
     keymap {
         compatible = "zmk,keymap";
 
-        default_layer {
-            display-name = "BAS";
-            // ------------------------------------------------------------------------------------------------------------
-            // |  `    |  1  |  2  |  3   |  4   |  5   |                   |  6   |  7    |  8    |  9   |   0   |       |
-            // |  ESC  |  Q  |  W  |  E   |  R   |  T   |                   |  Y   |  U    |  I    |  O   |   P   | BKSPC |
-            // |  TAB  |  A  |  S  |  D   |  F   |  G   |                   |  H   |  J    |  K    |  L   |   ;   |   '   |
-            // | SHIFT |  Z  |  X  |  C   |  V   |  B   |  MUTE  |  |       |  N   |  M    |  ,    |  .   |   /   | SHIFT |
-            //               | GUI | ALT  | CTRL | LOWER|  ENTER |  | SPACE | RAISE| CTRL  | ALT   | GUI  |
-
+        win_layer {
+            display-name = "WIN";
             bindings = <
-&kp ESC     &kp N1  &kp N2      &kp N3      &kp N4          &kp N5                                  &kp N6      &kp N7          &kp N8     &kp N9    &kp N0    &kp DEL
-&kp TAB     &kp Q   &kp W       &kp E       &kp R           &kp T                                   &kp Y       &kp U           &kp I      &kp O     &kp P     &kp SQT
-&kp LSHFT   &kp A   &kp S       &kp D       &lt 2 F         &kp G                                   &kp H       &kp J           &kp K      &kp L     &kp SEMI  &kp RSHFT
-&kp LALT    &kp Z   &kp X       &kp C       &kp V           &kp B       &kp C_MUTE      &kp C_MUTE  &kp N       &kp M           &kp COMMA  &kp DOT   &kp FSLH  &kp BSLH
-            &trans  &trans      &kp LWIN    &mt LCTRL TAB   &lt 1 RET                               &lt 2 SPACE &mt RCTRL BSPC  &kp RWIN    &trans   &trans
+&kp GRAVE   &kp N1  &kp N2  &kp N3  &kp N4  &kp N5                                &kp N6    &kp N7  &kp N8    &kp N9   &kp N0    &kp MINUS
+&kp TAB     &kp Q   &kp W   &kp E   &kp R   &kp T                                 &kp Y     &kp U   &kp I     &kp O    &kp P     &kp BSPC
+&kp ESC     &kp A   &kp S   &kp D   &kp F   &kp G                                 &kp H     &kp J   &kp K     &kp L    &kp SEMI  &kp SQT
+&kp LSHFT   &kp Z   &kp X   &kp C   &kp V   &kp B   &kp C_MUTE       &kp C_PP     &kp N     &kp M   &kp COMMA &kp DOT  &kp FSLH  &kp RSHFT
+              &kp LGUI &kp LGUI &kp LALT &kp LCTRL &lt_bal NUM SPACE   &lt_bal NUM RET &kp RCTRL &kp RALT &kp RGUI &mo SYS
             >;
-
-            sensor-bindings = <&inc_dec_kp C_VOL_UP C_VOL_DN &inc_dec_kp PG_UP PG_DN>;
+            sensor-bindings = <&inc_dec_kp C_VOL_UP C_VOL_DN  &inc_dec_kp PG_DN PG_UP>;
         };
 
-        lower_layer {
-            display-name = "LOW";
-            // ------------------------------------------------------------------------------------------------------------
-            // |       |  F1 |  F2 |  F3  |  F4  |  F5  |                   |  F6  |  F7   |  F8   |  F9  |  F10  |  F11  |
-            // | `     |   1 |   2 |   3  |   4  |   5  |                   |   6  |   7   |   8   |   9  |    0  |  F12  |
-            // |       |BTCLR| BT1 | BT2  | BT3  | BT4  |                   | LEFT | DOWN  |  UP   | RIGHT |  INS  |PRINTSCREEN|
-            // |       |     | HOME| PGUP | PGDN | END  |        |  |       | UNDO |  CUT  | COPY  | PASTE |  DEL  |    BKSP   |
-            //               |     |      |      |      |        |  |       |      |       |       |      |
-
+        mac_layer {
+            display-name = "MAC";
             bindings = <
-&trans          &trans              &trans          &trans          &trans          &trans                                   &trans  &trans    &trans    &trans      &trans          &trans
-&studio_unlock  &bt BT_CLR          &bt BT_SEL 0    &bt BT_SEL 1    &bt BT_SEL 2    &bt BT_SEL 3                            &trans  &kp HOME  &kp UP    &kp END     &kp LS(LBKT)    &trans
-&sys_reset      &kp LCTRL           &kp LSHFT       &kp LALT        &kp LGUI        &trans                                  &trans  &kp LEFT  &kp DOWN  &kp RIGHT   &kp LS(RBKT)    &trans
-&trans          &rgb_ug  RGB_TOG    &rgb_ug RGB_EFF &rgb_ug RGB_BRD &rgb_ug RGB_BRI &trans          &trans          &trans  &trans  &kp LPAR  &kp RPAR  &kp LBKT    &kp RBKT        &trans
-                &trans              &trans          &trans          &trans          &trans                                  &trans  &trans    &trans    &trans      &trans
+&kp GRAVE   &kp N1  &kp N2  &kp N3  &kp N4  &kp N5                                &kp N6    &kp N7  &kp N8    &kp N9   &kp N0    &kp MINUS
+&kp TAB     &kp Q   &kp W   &kp E   &kp R   &kp T                                 &kp Y     &kp U   &kp I     &kp O    &kp P     &kp BSPC
+&hyper_esc LC(LS(LA(LGUI))) ESC  &kp A &kp S &kp D &kp F &kp G                    &kp H     &kp J   &kp K     &kp L    &kp SEMI  &kp SQT
+&kp LSHFT   &kp Z   &kp X   &kp C   &kp V   &kp B   &kp C_MUTE       &kp C_PP     &kp N     &kp M   &kp COMMA &kp DOT  &kp FSLH  &kp RSHFT
+              &kp LALT &kp LALT &kp LCTRL &hm_gui LGUI LANG2 &lt_bal NUM SPACE   &lt_bal NUM RET &hm_gui RGUI LANG1 &kp RCTRL &kp RALT &mo SYS
             >;
-
-            sensor-bindings = <&inc_dec_kp C_VOL_UP C_VOL_DN &inc_dec_kp PG_UP PG_DN>;
+            sensor-bindings = <&inc_dec_kp C_VOL_UP C_VOL_DN  &inc_dec_kp PG_DN PG_UP>;
         };
 
-        raise_layer {
-            display-name = "RAI";
-            // ------------------------------------------------------------------------------------------------------------
-            // |     |       |       |       |       |       |                |      |      |       |      |       |       |
-            // |     |   !   |   @   |   #   |   $   |   %   |                |   ^  |  &   |   *   |   (  |   )   |       |
-            // |     |RGB_TOG|RGB_HUI|RGB_SAI|RGB_BRI|       |                |   -  |   =  |   [   |   ]  |   \   | GRAVE |
-            // |     |RGB_EFF|RGB_HUD|RGB_SAD|RGB_BRD|QK_BOOT|      |  |      |   _  |   +  |   {   |   }  |   |   |   ~   |
-            //              |      |       |       |      |      |  |      |      |      |       |      |
-
+        num_layer {
+            display-name = "NUM";
             bindings = <
-&trans  &trans      &trans      &trans          &trans          &trans                              &trans  &trans  &trans  &trans  &trans  &trans
-&trans  &kp GRAVE   &kp PRCNT   &kp PIPE        &kp AMPS        &kp EQUAL                           &trans  &kp N7  &kp N8  &kp N9  &kp F1  &kp F2
-&trans  &kp EXCL    &kp AT      &kp HASH        &kp DLLR        &kp LS(DOT)                         &trans  &kp N4  &kp N5  &kp N6  &kp F3  &kp F4
-&trans  &kp CARET   &kp ASTRK   &kp LS(MINUS)   &kp LS(EQUAL)   &kp MINUS       &trans      &trans  &trans  &kp N1  &kp N2  &kp N3  &kp F5  &kp F6
-        &trans      &trans      &trans          &trans          &trans                              &kp RET &kp N0  &trans  &trans  &trans
+&trans      &trans   &m0      &m1      &m2      &trans                            &trans    &kp LBKT &kp RBKT  &kp BSLH &trans    &kp F12
+&kp GRAVE   &kp F1   &kp F2   &kp F3   &kp F4   &kp F5                            &kp F6    &kp F7   &kp F8    &kp F9   &kp F10   &kp F11
+&kp TILDE   &kp N1   &kp N2   &kp N3   &kp N4   &kp N5                            &kp N6    &kp N7   &kp N8    &kp N9   &kp N0    &kp EQUAL
+&trans      &kp EXCL &kp AT   &kp HASH &kp DLLR &kp PRCNT  &to WIN     &to MAC    &kp CARET &kp AMPS &kp ASTRK &kp LPAR &kp RPAR  &kp PLUS
+              &trans &trans &trans &trans &trans             &trans &trans &trans &trans &trans
             >;
-
-            sensor-bindings = <&inc_dec_kp C_VOL_UP C_VOL_DN &inc_dec_kp PG_UP PG_DN>;
+            // 回転はベース (音量 / ページ) と同じ = QMK の透過相当
+            sensor-bindings = <&inc_dec_kp C_VOL_UP C_VOL_DN  &inc_dec_kp PG_DN PG_UP>;
         };
+
+        // 有線版の予備 Layer3 を BT/システム管理に転用 (無線で必須になった機能の置き場)。
+        // 右親指最外 (&mo SYS) ホールドで到達 — 有線の LT3(KC_NO) と同じ物理キー。
+        // 誤爆防止のため未割当は透過ではなく &none (有線 MACRO レイヤーと同じ方針)。
+        sys_layer {
+            display-name = "SYS";
+            bindings = <
+&bootloader &bt BT_SEL 0 &bt BT_SEL 1 &bt BT_SEL 2 &bt BT_SEL 3 &bt BT_SEL 4     &none &none &none &none &none &bootloader
+&sys_reset  &bt BT_CLR   &none        &none        &none        &none            &none &none &none &none &none &sys_reset
+&none       &out OUT_USB &out OUT_BLE &out OUT_TOG &none        &none            &none &none &none &none &none &none
+&none       &none        &none        &none        &none        &none   &none      &none   &none &none &none &none &none &none
+              &trans &trans &trans &trans &trans          &trans &trans &trans &trans &trans
+            >;
+            sensor-bindings = <&inc_dec_kp C_VOL_UP C_VOL_DN  &inc_dec_kp PG_DN PG_UP>;
+        };
+
+        // ZMK Studio でレイヤーを後から追加できるよう予約 (KeebMaker デフォルトの流儀を踏襲)
         extra_1 {
             status = "reserved";
         };
 
         extra_2 {
-            status = "reserved";
-        };
-
-        extra_3 {
             status = "reserved";
         };
     };
